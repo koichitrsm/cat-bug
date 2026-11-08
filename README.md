@@ -9,11 +9,7 @@
 4. 3分経過すると終了し、最終得点が表示されます。
 5. PLAY AGAINで再挑戦できます。
 
-## 公開方法（GitHub Pages）
-1. GitHubでPublicリポジトリを作成（例：`cat-bug`）。
-2. `index.html` と `manifest.webmanifest` をリポジトリ直下にアップロード。
-3. Settings → Pages → Deploy from a branch → `main` / `/ (root)` → Save。
-4. `https://ユーザー名.github.io/cat-bug/` で公開。
+
 
 外部ライブラリ・外部画像・音声は使用していません。猫が画面を触っても操作しやすいよう、画面全体がタッチ領域です。
 ※実機での猫による安全性・操作性テストは未実施です。
