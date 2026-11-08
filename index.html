@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>CAT BUG — 猫のための虫追いゲーム</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;touch-action:none}
+#game{position:fixed;inset:0;background:#000;overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#hud{position:absolute;top:calc(env(safe-area-inset-top) + 12px);left:16px;right:16px;display:flex;align-items:flex-start;justify-content:space-between;pointer-events:none;text-shadow:0 1px 8px #000}
+.stat{display:flex;flex-direction:column;gap:2px}
+.label{font-size:9px;letter-spacing:.2em;color:#858585}
+.value{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+#score{font-size:28px}
+#bottom{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 16px);text-align:center;pointer-events:none}
+#hint{font-size:10px;letter-spacing:.14em;color:#777}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.84);padding:28px;text-align:center}
+.panel{max-width:340px}
+h1{font-size:30px;letter-spacing:.15em;margin:0 0 12px}
+.sub{font-size:12px;line-height:1.9;color:#aaa;margin:0 0 24px}
+button{border:1px solid #ddd;background:#fff;color:#000;border-radius:30px;padding:13px 28px;font-size:12px;font-weight:700;letter-spacing:.12em}
+button:active{transform:scale(.97)}
+#resultScore{font-size:44px;font-weight:800;margin:8px 0 20px;font-variant-numeric:tabular-nums}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="game">
+<canvas id="canvas"></canvas>
+<div id="hud">
+ <div class="stat"><span class="label">SCORE</span><span class="value" id="score">0</span></div>
+ <div class="stat" style="text-align:right"><span class="label">TIME LEFT</span><span class="value" id="time">03:00</span></div>
+</div>
+<div id="bottom"><div id="hint">画面をタッチして白い波を出そう</div></div>
+<div id="overlay">
+ <div class="panel" id="startPanel">
+  <h1>CAT BUG</h1>
+  <p class="sub">黒い画面を動き回る、小さな白い虫。<br>画面をタッチすると白い波が広がります。<br>波で虫をとらえて得点を獲得しよう。<br><br>制限時間は3分です。</p>
+  <button id="startBtn">START GAME</button>
+ </div>
+ <div class="panel hidden" id="endPanel">
+  <h1>TIME UP</h1>
+  <div class="sub">YOUR SCORE</div>
+  <div id="resultScore">0</div>
+  <button id="againBtn">PLAY AGAIN</button>
+ </div>
+</div>
+</div>
+<script>
+(()=>{
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score'),timeEl=document.getElementById('time');
+const overlay=document.getElementById('overlay'),startPanel=document.getElementById('startPanel'),endPanel=document.getElementById('endPanel');
+const resultScore=document.getElementById('resultScore');
+let W=0,H=0,D=1,score=0,remaining=180,playing=false,last=0,bug=null,waves=[],floaters=[],raf=0;
+const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);ctx.setTransform(D,0,0,D,0,0);if(bug){bug.x=clamp(bug.x,30,W-30);bug.y=clamp(bug.y,65,H-65);}draw();}
+addEventListener('resize',resize);
+function newBug(){return{x:rand(W*.2,W*.8),y:rand(H*.22,H*.78),angle:rand(0,Math.PI*2),speed:rand(24,55),mode:'walk',modeTime:rand(.5,1.8),phase:rand(0,8),turn:rand(-1,1),vx:0,vy:0};}
+function begin(){score=0;remaining=180;waves=[];floaters=[];bug=newBug();playing=true;overlay.classList.add('hidden');scoreEl.textContent='0';updateTime();last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);}
+function updateTime(){const s=Math.max(0,Math.ceil(remaining));timeEl.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+function addScore(n,x,y){score+=n;scoreEl.textContent=score;floaters.push({x,y,text:'+'+n,life:1});}
+function tap(x,y){if(!playing)return;waves.push({x,y,r:0,max:Math.hypot(W,H)+30,speed:Math.max(W,H)*1.45,life:1,hit:false,created:performance.now()});}
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();const r=canvas.getBoundingClientRect();tap(e.clientX-r.left,e.clientY-r.top);});
+function updateBug(dt,t){
+ const b=bug;b.phase+=dt*9;b.modeTime-=dt;
+ if(b.modeTime<=0){
+  const choice=Math.random();
+  if(b.mode==='burst'){b.mode='pause';b.modeTime=rand(.25,.8);b.speed=0;}
+  else if(choice<.30){b.mode='pause';b.modeTime=rand(.35,1.5);b.speed=0;}
+  else if(choice<.53){b.mode='burst';b.modeTime=rand(.22,.55);b.speed=rand(150,230);b.angle+=rand(-1.5,1.5);}
+  else {b.mode='walk';b.modeTime=rand(.6,2.2);b.speed=rand(25,65);b.angle+=rand(-1.2,1.2);}
+ }
+ // Smoothly curve its path; occasionally twitch in place.
+ if(b.mode!=='pause'){b.angle+=Math.sin(t*.0017+b.phase)*dt*.55;b.x+=Math.cos(b.angle)*b.speed*dt;b.y+=Math.sin(b.angle)*b.speed*dt;}
+ else {b.angle+=Math.sin(t*.004)*dt*.18;}
+ const margin=27;
+ if(b.x<margin||b.x>W-margin){b.angle=Math.PI-b.angle;b.x=clamp(b.x,margin,W-margin);}
+ if(b.y<68||b.y>H-48){b.angle=-b.angle;b.y=clamp(b.y,68,H-48);}
+}
+function drawBug(t){
+ const b=bug,legSwing=b.mode==='pause'?.08:Math.sin(b.phase)*.7;
+ ctx.save();ctx.translate(b.x,b.y);ctx.rotate(b.angle);
+ ctx.strokeStyle='#fff';ctx.fillStyle='#000';ctx.lineWidth=1.55;ctx.lineCap='round';ctx.lineJoin='round';
+ // Six articulated legs, three pairs.
+ for(let i=0;i<3;i++){
+  const ax=(i-1)*5, sideY=i===1?0:((i===0)?-1:1)*2;
+  for(const side of [-1,1]){
+   const swing=legSwing*(i===1?1:-1);
+   const hipX=ax,hipY=sideY;
+   const kneeX=ax+(i-1)*2+Math.cos(swing+side)*3.2;
+   const kneeY=side*(5.5+Math.sin(swing)*1.7);
+   const footX=kneeX+(i-1)*2+Math.cos(swing+side)*4.2;
+   const footY=side*(10+Math.sin(swing+side)*2.2);
+   ctx.beginPath();ctx.moveTo(hipX,hipY);ctx.lineTo(kneeX,kneeY);ctx.lineTo(footX,footY);ctx.stroke();
+  }
+ }
+ // abdomen and thorax
+ ctx.beginPath();ctx.ellipse(-5,0,5.2,3.2,-.08,0,Math.PI*2);ctx.stroke();
+ ctx.beginPath();ctx.ellipse(1.5,0,3.2,2.5,0,0,Math.PI*2);ctx.stroke();
+ // head
+ ctx.beginPath();ctx.arc(6,0,2.5,0,Math.PI*2);ctx.stroke();
+ // antennae
+ const twitch=Math.sin(t*.009+b.phase)*1.6;
+ ctx.beginPath();ctx.moveTo(7,-1.5);ctx.quadraticCurveTo(10,-5-twitch,13,-5.5+twitch*.3);ctx.moveTo(7,1.5);ctx.quadraticCurveTo(10,5+twitch,13,5.5-twitch*.3);ctx.stroke();
+ ctx.restore();
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ // ripples: several thin, expanding white circles.
+ for(const w of waves){
+  for(let i=0;i<3;i++){const rr=Math.max(0,w.r-i*19);if(rr<=0)continue;ctx.beginPath();ctx.arc(w.x,w.y,rr,0,Math.PI*2);ctx.strokeStyle=`rgba(255,255,255,${Math.max(0,.78-i*.2)*w.life})`;ctx.lineWidth=i===0?1.7:1;ctx.stroke();}
+ }
+ if(bug&&playing)drawBug(performance.now());
+ for(const f of floaters){ctx.globalAlpha=f.life;ctx.fillStyle='#fff';ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.fillText(f.text,f.x,f.y);ctx.globalAlpha=1;}
+}
+function loop(t){
+ if(!playing)return;const dt=Math.min((t-last)/1000,.04);last=t;remaining-=dt;
+ if(remaining<=0){remaining=0;updateTime();finish();return;}
+ updateTime();updateBug(dt,t);
+ for(const w of waves){
+  const old=w.r;w.r+=w.speed*dt;w.life=clamp(1-(w.r/w.max)*.65,.25,1);
+  if(!w.hit){const d=Math.hypot(bug.x-w.x,bug.y-w.y);const bugRadius=13;
+   if(d>=old-bugRadius && d<=w.r+bugRadius){w.hit=true;addScore(10,bug.x,bug.y-18);
+    // The insect startles and scuttles away from the passing ripple.
+    bug.mode='burst';bug.modeTime=rand(.35,.65);bug.speed=rand(170,245);bug.angle=Math.atan2(bug.y-w.y,bug.x-w.x)+rand(-.45,.45);
+   }
+  }
+ }
+ waves=waves.filter(w=>w.r<w.max+30);
+ for(const f of floaters){f.y-=dt*28;f.life-=dt*.9;}floaters=floaters.filter(f=>f.life>0);
+ draw();raf=requestAnimationFrame(loop);
+}
+function finish(){playing=false;cancelAnimationFrame(raf);resultScore.textContent=score;startPanel.classList.add('hidden');endPanel.classList.remove('hidden');overlay.classList.remove('hidden');}
+document.getElementById('startBtn').addEventListener('click',begin);
+document.getElementById('againBtn').addEventListener('click',begin);
+resize();
+})();
+</script>
+</body>
+</html>
